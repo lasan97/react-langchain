@@ -68,7 +68,7 @@ if __name__ == "__main__":
         model="gpt-3.5-turbo",
         temperature=0,
         stop=["\nObservation", "Observation"],
-        callbacks=[AgentCallbackHandler()]
+        callbacks=[AgentCallbackHandler()],
     )
 
     intermediate_step = []
@@ -82,31 +82,26 @@ if __name__ == "__main__":
         | llm
         | ReActSingleInputOutputParser()
     )
-    # res = agent.invoke({"input": "What is the text length of 'DOG' in characters?" })
-    agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
-        {
-            "input": "What is the text length in characters of the 'DOG' ?",
-            "agent_scratchpad": intermediate_step,
-        }
-    )
 
-    print(agent_step)
+    agent_step = ""
+    while not isinstance(agent_step, AgentFinish):
+        agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
+            {
+                "input": "What is the text length in characters of the 'DOG' ?",
+                "agent_scratchpad": intermediate_step,
+            }
+        )
 
-    if isinstance(agent_step, AgentAction):
-        tool_name = agent_step.tool
-        tool_to_use = find_tool_by_name(tools, tool_name)
-        tool_input = agent_step.tool_input
+        print(agent_step)
 
-        observation = tool_to_use.func(str(tool_input))
-        print(f"{observation=}")
-        intermediate_step.append((agent_step, str(observation)))
+        if isinstance(agent_step, AgentAction):
+            tool_name = agent_step.tool
+            tool_to_use = find_tool_by_name(tools, tool_name)
+            tool_input = agent_step.tool_input
 
-    agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
-        {
-            "input": "What is the text length in characters of the 'DOG' ?",
-            "agent_scratchpad": intermediate_step,
-        }
-    )
+            observation = tool_to_use.func(str(tool_input))
+            print(f"{observation=}")
+            intermediate_step.append((agent_step, str(observation)))
 
     if isinstance(agent_step, AgentFinish):
         print(agent_step.return_values)
