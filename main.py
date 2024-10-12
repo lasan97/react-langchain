@@ -1,13 +1,9 @@
-from typing import Union, List
+from typing import List
 
 from dotenv import load_dotenv
-from langchain.agents import tool
-from langchain.agents.format_scratchpad import format_log_to_str
-from langchain.agents.output_parsers import ReActSingleInputOutputParser
-from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.prompts import PromptTemplate
-from langchain_core.tools import render_text_description, Tool
+from langchain.agents import tool, AgentExecutor, initialize_agent, AgentType
 from langchain_community.chat_models import ChatOpenAI
+from langchain_core.tools import Tool
 
 from callback import AgentCallbackHandler
 
@@ -34,74 +30,13 @@ def find_tool_by_name(tools: List[Tool], tools_name: str):
 
 if __name__ == "__main__":
     print("Hello ReAct LangChain")
-
-    tools = [get_text_length]
-
-    template = """
-    Answer the following questions as best you can. You have access to the following tools:
-
-    {tools}
-    
-    Use the following format:
-    
-    Question: the input question you must answer
-    Thought: you should always think about what to do
-    Action: the action to take, should be one of [{tool_names}]
-    Action Input: the input to the action
-    Observation: the result of the action
-    ... (this Thought/Action/Action Input/Observation can repeat N times)
-    Thought: I now know the final answer
-    Final Answer: the final answer to the original input question
-    
-    Begin!
-    
-    Question: {input}
-    Thought: {agent_scratchpad} 
-    """
-
-    prompt = PromptTemplate.from_template(template=template).partial(
-        tools=render_text_description(tools),
-        tool_names=", ".join([t.name for t in tools]),
-    )
-
     llm = ChatOpenAI(
-        model="gpt-3.5-turbo",
-        temperature=0,
-        stop=["\nObservation", "Observation"],
-        callbacks=[AgentCallbackHandler()],
+        callbacks=[AgentCallbackHandler()]
     )
-
-    intermediate_step = []
-
-    agent = (
-        {
-            "input": lambda x: x["input"],
-            "agent_scratchpad": lambda x: format_log_to_str(x["agent_scratchpad"]),
-        }
-        | prompt
-        | llm
-        | ReActSingleInputOutputParser()
+    agent_executor: AgentExecutor = initialize_agent(
+        tools=[get_text_length],
+        llm=llm,
+        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+        verbose=True
     )
-
-    agent_step = ""
-    while not isinstance(agent_step, AgentFinish):
-        agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
-            {
-                "input": "What is the text length in characters of the 'DOG' ?",
-                "agent_scratchpad": intermediate_step,
-            }
-        )
-
-        print(agent_step)
-
-        if isinstance(agent_step, AgentAction):
-            tool_name = agent_step.tool
-            tool_to_use = find_tool_by_name(tools, tool_name)
-            tool_input = agent_step.tool_input
-
-            observation = tool_to_use.func(str(tool_input))
-            print(f"{observation=}")
-            intermediate_step.append((agent_step, str(observation)))
-
-    if isinstance(agent_step, AgentFinish):
-        print(agent_step.return_values)
+    agent_executor.invoke({"input": "What is the length of the text Dog?"})
