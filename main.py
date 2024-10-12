@@ -2,11 +2,14 @@ from typing import Union, List
 
 from dotenv import load_dotenv
 from langchain.agents import tool
+from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import render_text_description, Tool
 from langchain_community.chat_models import ChatOpenAI
+
+from callback import AgentCallbackHandler
 
 load_dotenv()
 
@@ -22,7 +25,7 @@ def get_text_length(text: str) -> int:
     return len(text)
 
 
-def find_tool_by_name(tools: List[Tool], tools_name:str):
+def find_tool_by_name(tools: List[Tool], tools_name: str):
     for tool in tools:
         if tool.name == tools_name:
             return tool
@@ -53,23 +56,38 @@ if __name__ == "__main__":
     Begin!
     
     Question: {input}
-    Thought:
+    Thought: {agent_scratchpad} 
     """
 
     prompt = PromptTemplate.from_template(template=template).partial(
-        tools=render_text_description(tools), tool_names=", ".join([t.name for t in tools])
+        tools=render_text_description(tools),
+        tool_names=", ".join([t.name for t in tools]),
     )
 
     llm = ChatOpenAI(
+        model="gpt-3.5-turbo",
         temperature=0,
-        model_kwargs={"stop":["\nObservation", "Observation"]}
+        stop=["\nObservation", "Observation"],
+        callbacks=[AgentCallbackHandler()]
     )
 
-    agent = {"input": lambda x:x["input"]} |prompt | llm | ReActSingleInputOutputParser()
+    intermediate_step = []
 
+    agent = (
+        {
+            "input": lambda x: x["input"],
+            "agent_scratchpad": lambda x: format_log_to_str(x["agent_scratchpad"]),
+        }
+        | prompt
+        | llm
+        | ReActSingleInputOutputParser()
+    )
     # res = agent.invoke({"input": "What is the text length of 'DOG' in characters?" })
     agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
-        {"input": "What is the text length in characters of the 'DOG' ?"}
+        {
+            "input": "What is the text length in characters of the 'DOG' ?",
+            "agent_scratchpad": intermediate_step,
+        }
     )
 
     print(agent_step)
@@ -80,5 +98,15 @@ if __name__ == "__main__":
         tool_input = agent_step.tool_input
 
         observation = tool_to_use.func(str(tool_input))
-        print(f"{observation}")
-        
+        print(f"{observation=}")
+        intermediate_step.append((agent_step, str(observation)))
+
+    agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
+        {
+            "input": "What is the text length in characters of the 'DOG' ?",
+            "agent_scratchpad": intermediate_step,
+        }
+    )
+
+    if isinstance(agent_step, AgentFinish):
+        print(agent_step.return_values)
